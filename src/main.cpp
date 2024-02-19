@@ -1,22 +1,25 @@
 #include <WiFi.h>
-
+#include <ArduinoOTA.h>
 #include "credentials.h"
 
 //how many clients should be able to telnet to this ESP32
-#define MAX_SRV_CLIENTS 1
+#define MAX_SRV_CLIENTS 3
 const char* ssid = WIFI_SSID;
 const char* password = WIFI_PASSWORD;
 
-IPAddress staticIP(10,0,0,51);
-IPAddress gateway(10,0,0,1);
-IPAddress subnet(255, 255, 255, 0);
-IPAddress dns(1,1,1,1);
+// IPAddress staticIP(10,0,0,51);
+// IPAddress gateway(10,0,0,1);
+// IPAddress subnet(255, 255, 255, 0);
+// IPAddress dns(1,1,1,1);
 
 WiFiServer server(23);
 WiFiClient serverClients[MAX_SRV_CLIENTS];
 
  #define RXD2 17
  #define TXD2 16
+ 
+ #define RXD3 25
+ #define TXD3 26
 
 void setup() {
 
@@ -29,9 +32,9 @@ void setup() {
 
 
   // Configures static IP address
-  if (!WiFi.config(staticIP, gateway, subnet, dns, dns)) {
-    Serial.println("STA Failed to configure");
-  }
+  // if (!WiFi.config(staticIP, gateway, subnet, dns, dns)) {
+  //   Serial.println("STA Failed to configure");
+  // }
 
   WiFi.begin(ssid, password);
   // // Connect to Wi-Fi network with SSID and password
@@ -67,9 +70,38 @@ void setup() {
   }
 
   //start UART and the server
-  Serial2.begin(9600,SERIAL_8N1, RXD2, TXD2);
+  Serial2.begin(9600,SERIAL_8N1,RXD2, TXD2);
+  Serial1.begin(9600, SERIAL_8N1, RXD3, TXD3);
   server.begin();
   server.setNoDelay(true);
+
+  ArduinoOTA
+    .onStart([]() {
+      String type;
+      if (ArduinoOTA.getCommand() == U_FLASH)
+        type = "sketch";
+      else // U_SPIFFS
+        type = "filesystem";
+
+      // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()
+      Serial.println("Start updating " + type);
+    })
+    .onEnd([]() {
+      Serial.println("\nEnd");
+    })
+    .onProgress([](unsigned int progress, unsigned int total) {
+      Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
+    })
+    .onError([](ota_error_t error) {
+      Serial.printf("Error[%u]: ", error);
+      if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
+      else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
+      else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
+      else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
+      else if (error == OTA_END_ERROR) Serial.println("End Failed");
+    });
+
+  ArduinoOTA.begin();
 
   Serial.print("Ready! Use 'telnet ");
   Serial.print(WiFi.localIP());
@@ -82,6 +114,7 @@ void setup() {
 
 void loop() {
   uint8_t i;
+  ArduinoOTA.handle(); 
   if (WiFi.status() == WL_CONNECTED) {
     //check if there are any new clients
     if (server.hasClient()){
@@ -121,6 +154,10 @@ void loop() {
       size_t len = Serial2.available();
       uint8_t sbuf[len];
       Serial2.readBytes(sbuf, len);
+
+      //passtrough data to serial1
+      Serial1.write(sbuf, len);
+
       Serial.write(sbuf,len);
       //push UART data to all connected telnet clients
       for(i = 0; i < MAX_SRV_CLIENTS; i++){
@@ -129,6 +166,16 @@ void loop() {
           delay(1);
         }
       }
+    }
+    if(Serial1.available()){
+      size_t len = Serial1.available();
+      uint8_t sbuf[len];
+      Serial1.readBytes(sbuf, len);
+
+      //passtrough data to serial2
+      Serial2.write(sbuf, len);
+      
+      Serial.write(sbuf,len);
     }
   }
   else {
