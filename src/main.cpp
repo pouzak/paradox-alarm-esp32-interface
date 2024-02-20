@@ -111,11 +111,16 @@ void setup() {
   digitalWrite(LED_BUILTIN, HIGH);
 
 }
+unsigned long previousMillis = 0;
+unsigned long interval = 30000;
+
 
 void loop() {
   uint8_t i;
+  unsigned long currentMillis = millis();
+  
   ArduinoOTA.handle(); 
-  if (WiFi.status() == WL_CONNECTED) {
+
     //check if there are any new clients
     if (server.hasClient()){
       for(i = 0; i < MAX_SRV_CLIENTS; i++){
@@ -177,13 +182,17 @@ void loop() {
       
       Serial.write(sbuf,len);
     }
-  }
-  else {
+    if ((WiFi.status() != WL_CONNECTED) && (currentMillis - previousMillis >=interval)) { 
     Serial.println("WiFi not connected!");
-    for(i = 0; i < MAX_SRV_CLIENTS; i++) {
-      if (serverClients[i]) serverClients[i].stop();
+    if (server.hasClient()){
+      for(i = 0; i < MAX_SRV_CLIENTS; i++) {
+        if (serverClients[i]) serverClients[i].stop();
+        }
     }
-    delay(1000);
-    ESP.restart();
+      WiFi.disconnect();
+      WiFi.reconnect();
+      previousMillis = currentMillis;
+    // delay(1000);
+    // ESP.restart();
   }
 }
